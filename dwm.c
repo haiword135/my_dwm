@@ -180,13 +180,13 @@ static long getstate(Window w);
 static int gettextprop(Window w, Atom atom, char *text, unsigned int size);
 static void grabbuttons(Client *c, int focused);
 static void grabkeys(void);
+static void grid(Monitor *m);
 static void incnmaster(const Arg *arg);
 static void keypress(XEvent *e);
 static void killclient(const Arg *arg);
 static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
-static void monocle(Monitor *m);
 static void motionnotify(XEvent *e);
 static void movemouse(const Arg *arg);
 static Client *nexttiled(Client *c);
@@ -216,6 +216,7 @@ static void spawn(const Arg *arg);
 static void tag(const Arg *arg);
 static void tagmon(const Arg *arg);
 static void tile(Monitor *m);
+static void tatami(Monitor *m); 
 static void togglebar(const Arg *arg);
 static void togglefloating(const Arg *arg);
 static void togglescratch(const Arg *arg);
@@ -1021,6 +1022,33 @@ grabkeys(void)
 						True, GrabModeAsync, GrabModeAsync);
 	}
 }
+void
+grid(Monitor *m){
+	unsigned int i, n, cx, cy, cw, ch, aw, ah, cols, rows;
+	Client *c;
+	for(n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next))
+		n++;
+
+	/* grid dimensions */
+	for(rows = 0; rows <= n/2; rows++)
+		if(rows*rows >= n)
+			break;
+	cols = (rows && (rows - 1) * rows >= n) ? rows - 1 : rows;
+
+	/* window geoms (cell height/width) */
+	ch = m->wh / (rows ? rows : 1);
+	cw = m->ww / (cols ? cols : 1);
+	for(i = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next)) {
+		cx = m->wx + (i / rows) * cw;
+		cy = m->wy + (i % rows) * ch;
+		/* adjust height/width of last row/column's windows */
+		ah = ((i + 1) % rows == 0) ? m->wh - ch * rows : 0;
+		aw = (i >= rows * (cols - 1)) ? m->ww - cw * cols : 0;
+		resize(c, cx, cy, cw - 2 * c->bw + aw, ch - 2 * c->bw + ah, False);
+		i++;
+	}
+
+}
 
 void
 incnmaster(const Arg *arg)
@@ -1170,21 +1198,6 @@ maprequest(XEvent *e)
 		return;
 	if (!wintoclient(ev->window))
 		manage(ev->window, &wa);
-}
-
-void
-monocle(Monitor *m)
-{
-	unsigned int n = 0;
-	Client *c;
-
-	for (c = m->clients; c; c = c->next)
-		if (ISVISIBLE(c))
-			n++;
-	if (n > 0) /* override layout symbol */
-		snprintf(m->ltsymbol, sizeof m->ltsymbol, "[%d]", n);
-	for (c = nexttiled(m->clients); c; c = nexttiled(c->next))
-		resize(c, m->wx, m->wy, m->ww - 2 * c->bw, m->wh - 2 * c->bw, 0);
 }
 
 void
@@ -1362,15 +1375,8 @@ resizeclient(Client *c, int x, int y, int w, int h)
 	if (c->isfloating || c->mon->lt[c->mon->sellt]->arrange == NULL) {
 		gapincr = gapoffset = 0;
 	} else {
-		/* Remove border and gap if layout is monocle or only one client */
-		if (c->mon->lt[c->mon->sellt]->arrange == monocle || n == 1) {
-			gapoffset = 0;
-			gapincr = -2 * borderpx;
-			wc.border_width = 0;
-		} else {
 			gapoffset = gappx;
 			gapincr = 2 * gappx;
-		}
 	}
 
 	c->oldx = c->x; c->x = wc.x = x + gapoffset;
@@ -1829,6 +1835,163 @@ tile(Monitor *m)
 			if (ty + HEIGHT(c) + m->gappx < m->wh)
 				ty += HEIGHT(c) + m->gappx;
 		}
+}
+void 
+tatami(Monitor *m) {
+	unsigned int i, n, nx, ny, nw, nh,
+				 mats, tc,
+				 tnx, tny, tnw, tnh;
+	Client *c;
+
+	for(n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), ++n);
+	if(n == 0)
+		return;
+	
+	nx = m->wx;
+	ny = 0;
+	nw = m->ww;
+	nh = m->wh;
+	
+	c = nexttiled(m->clients);
+	
+	if(n != 1)  nw = m->ww * m->mfact;
+				ny = m->wy;
+				
+	resize(c, nx, ny, nw - 2 * c->bw, nh - 2 * c->bw, False);
+	
+	c = nexttiled(c->next);
+	
+	nx += nw;
+	nw = m->ww - nw;
+	
+	if(n>1)
+	{
+	
+	tc = n-1;
+	mats = tc/5;
+	
+	nh/=(mats + (tc % 5 > 0));
+	
+	for(i = 0; c && (i < (tc % 5)); c = nexttiled(c->next))
+	{
+		tnw=nw;
+		tnx=nx;
+		tnh=nh;
+		tny=ny;
+		switch(tc - (mats*5))
+				{
+					case 1://fill
+						break;
+					case 2://up and down
+						if((i % 5) == 0) //up
+						tnh/=2;
+						else if((i % 5) == 1) //down
+						{
+							tnh/=2;
+							tny += nh/2;
+						}
+						break;
+					case 3://bottom, up-left and up-right
+						if((i % 5) == 0) //up-left
+						{
+						tnw = nw/2;
+						tnh = (2*nh)/3;
+						}
+						else if((i % 5) == 1)//up-right
+						{
+							tnx += nw/2;
+							tnw = nw/2;
+							tnh = (2*nh)/3;
+						}
+						else if((i % 5) == 2)//bottom
+						{
+							tnh = nh/3;
+							tny += (2*nh)/3;	
+						}
+						break;
+					case 4://bottom, left, right and top
+						if((i % 5) == 0) //top
+						{
+							tnh = (nh)/4;
+						}
+						else if((i % 5) == 1)//left
+						{
+							tnw = nw/2;
+							tny += nh/4;
+							tnh = (nh)/2;
+						}
+						else if((i % 5) == 2)//right
+						{
+							tnx += nw/2;
+							tnw = nw/2;
+							tny += nh/4;
+							tnh = (nh)/2;
+						}
+						else if((i % 5) == 3)//bottom
+						{
+							tny += (3*nh)/4;
+							tnh = (nh)/4;
+						}
+						break;
+				}
+		++i;
+		resize(c, tnx, tny, tnw - 2 * c->bw, tnh - 2 * c->bw, False);
+	}
+	
+	++mats;
+	
+	for(i = 0; c && (mats>0); c = nexttiled(c->next)) {
+
+			if((i%5)==0)
+			{
+			--mats;
+			if(((tc % 5) > 0)||(i>=5))
+			ny+=nh;
+			}
+			
+			tnw=nw;
+			tnx=nx;
+			tnh=nh;
+			tny=ny;
+			
+
+			switch(i % 5)
+			{
+				case 0: //top-left-vert
+					tnw = (nw)/3;
+					tnh = (nh*2)/3;
+					break;
+				case 1: //top-right-hor
+					tnx += (nw)/3;
+					tnw = (nw*2)/3;
+					tnh = (nh)/3;
+					break;
+				case 2: //center
+					tnx += (nw)/3;
+					tnw = (nw)/3;
+					tny += (nh)/3;
+					tnh = (nh)/3;
+					break;
+				case 3: //bottom-right-vert
+					tnx += (nw*2)/3;
+					tnw = (nw)/3;
+					tny += (nh)/3;
+					tnh = (nh*2)/3;
+					break;
+				case 4: //(oldest) bottom-left-hor
+					tnw = (2*nw)/3;
+					tny += (2*nh)/3;
+					tnh = (nh)/3;
+					break;
+				default:
+					break;
+			}
+			
+			++i;
+			//i%=5;
+		resize(c, tnx, tny, tnw - 2 * c->bw, tnh - 2 * c->bw, False);
+		}
+	}
 }
 
 void
